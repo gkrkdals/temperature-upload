@@ -1,11 +1,9 @@
 import 'dart:async';
 
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-
+import 'package:device_info_plus/device_info_plus.dart';
 
 class BLEProvider extends ChangeNotifier {
   static const String _dataServiceUuid = 'ba2cc24b-9ba4-4316-a285-6687ffc3b6ae';
@@ -13,18 +11,25 @@ class BLEProvider extends ChangeNotifier {
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
+  // --- 스캔 관련 상태 ---
   List<ScanResult> scanResults = [];
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   bool isScanning = false;
 
+  // --- 연결 관련 상태 ---
   BluetoothDevice? connectedDevice;
 
+  // --- 온도 데이터 관련 상태 ---
   double? temperature;
-  StreamSubscription<List<int>>? _temperatureSubscription;
+  StreamSubscription<List<int>>? _valueSubscription;
 
+  // ✨ 외부에서 온도 변화를 감지할 수 있도록 StreamController와 Stream 추가
+  final StreamController<double?> _tempStreamController = StreamController.broadcast();
+  Stream<double?> get temperatureStream => _tempStreamController.stream;
+
+  // --- 기록 관련 상태 ---
   Timer? _recordingTimer;
   final List<Map<String, dynamic>> recordedTemperatures = [];
-  // bool _isRecording = false;
 
   void startScan() async {
     final deviceInfo = DeviceInfoPlugin();
@@ -42,9 +47,9 @@ class BLEProvider extends ChangeNotifier {
     notifyListeners();
 
     FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 10),
-      withServices: [],
-      androidUsesFineLocation: sdkInt <= 30
+        timeout: const Duration(seconds: 10),
+        withServices: [],
+        androidUsesFineLocation: sdkInt <= 30
     );
 
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
@@ -77,7 +82,8 @@ class BLEProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<BluetoothCharacteristic?> _getCharasteristic() async {
+
+  Future<BluetoothCharacteristic?> _getCharacteristic() async {
     if (connectedDevice != null) {
       List<BluetoothService> services = await connectedDevice!.discoverServices();
       for (BluetoothService service in services) {
@@ -90,37 +96,43 @@ class BLEProvider extends ChangeNotifier {
         }
       }
     }
-
     return null;
   }
 
   Future<void> discoverAndListen() async {
     await stopListening();
-    BluetoothCharacteristic? c = await _getCharasteristic();
+    BluetoothCharacteristic? c = await _getCharacteristic();
+
     if (c != null && c.properties.notify) {
       if (!c.isNotifying) {
         await c.setNotifyValue(true);
       }
-      await Future.delayed(Duration(milliseconds: 200));
+      // setNotifyValue 후 안정화를 위한 약간의 지연
+      await Future.delayed(const Duration(milliseconds: 200));
 
-      _temperatureSubscription = c.lastValueStream.listen((value) {
+      _valueSubscription = c.lastValueStream.listen((value) {
         final ascii = String.fromCharCodes(value);
-        updateTemperature(ascii);
+        _updateTemperature(ascii);
       });
     }
   }
 
-  void updateTemperature(String ascii) {
+  void _updateTemperature(String ascii) {
     try {
       final value = double.parse(ascii);
       temperature = value;
-      notifyListeners();
-    } catch (_) {}
+      _tempStreamController.add(value); // ✨ Stream으로 데이터 전송
+      notifyListeners(); // UI 업데이트 알림
+    } catch (_) {
+      // 파싱 실패 시 무시
+    }
   }
 
   void startRecording() {
     recordedTemperatures.clear();
-    _recordingTimer = Timer.periodic(Duration(seconds: 1), (_) {
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      // TODO: 주석4
+      // temperature ??= 0;
       if (temperature != null) {
         recordedTemperatures.add({
           'time': DateTime.now(),
@@ -130,77 +142,32 @@ class BLEProvider extends ChangeNotifier {
     });
   }
 
-  void stopRecording() async {
+  void stopRecording() {
     _recordingTimer?.cancel();
     _recordingTimer = null;
   }
 
   Future<void> stopListening() async {
-    await _temperatureSubscription?.cancel();
-    _temperatureSubscription = null;
-
-    final c = await _getCharasteristic();
-    if (c != null) {
-      await c.setNotifyValue(false);
-    }
-    temperature = null;
-    notifyListeners();
-  }
-
-  Future<void> reset() async {
-    if (isScanning) {
-      await FlutterBluePlus.stopScan();
-      isScanning = false;
-    }
-
-    if (connectedDevice != null) {
-      await connectedDevice!.disconnect();
-      connectedDevice = null;
-    }
-
-    await _temperatureSubscription?.cancel();
-    _temperatureSubscription = null;
-
-    await _scanSubscription?.cancel();
-    _scanSubscription = null;
-
-    _recordingTimer?.cancel();
-    _recordingTimer = null;
-
-    final c = await _getCharasteristic();
-    if (c != null) {
-      await c.setNotifyValue(false);
-    }
-
-    _recordingTimer?.cancel();
-    _recordingTimer = null;
-
-    scanResults.clear();
-    temperature = null;
-    recordedTemperatures.clear();
-    notifyListeners();
-  }
-
-  Future<void> connectToSavedDevice(String id, {void Function()? onFailed}) async {
-    final device = BluetoothDevice(remoteId: DeviceIdentifier(id));
+    await _valueSubscription?.cancel();
+    _valueSubscription = null;
 
     try {
-      await device.connect();
-    } catch (e) {
-      if (onFailed != null) {
-        onFailed();
+      final c = await _getCharacteristic();
+      if (c != null && c.isNotifying) {
+        await c.setNotifyValue(false);
       }
+    } catch(e) {
+      // 연결이 이미 끊긴 경우 등 예외 발생 가능
     }
+
+    temperature = null;
+    notifyListeners();
   }
 
-  Future<bool> tryConnectAndVerify(String id) async {
-    try {
-      final device = BluetoothDevice(remoteId: DeviceIdentifier(id));
-      await device.connect();
-      return true;
-    } catch (_) {
-      return false;
-    }
+  @override
+  void dispose() {
+    _tempStreamController.close();
+    super.dispose();
   }
 
   Future<void> saveDevice(String id, String alias) async {
@@ -213,9 +180,9 @@ class BLEProvider extends ChangeNotifier {
     final deviceEntries = all.entries
         .where((e) => e.key.startsWith('ble_device_'))
         .map((e) => {
-              'id': e.key.replaceFirst('ble_device_', ''),
-              'alias': e.value,
-            })
+      'id': e.key.replaceFirst('ble_device_', ''),
+      'alias': e.value,
+    })
         .toList();
 
     return deviceEntries;
@@ -227,12 +194,39 @@ class BLEProvider extends ChangeNotifier {
 
   Future<String?> getCurrentDeviceAlias() async {
     String? id = connectedDevice?.remoteId.str;
-
-    if (id == null) {
-      return '';
-    }
-
+    if (id == null) return '';
     return _storage.read(key: 'ble_device_$id');
   }
 
+  Future<void> reset() async {
+    // 1. 진행 중인 스캔 중지
+    if (isScanning) {
+      await FlutterBluePlus.stopScan();
+      isScanning = false;
+    }
+
+    // 2. 연결된 기기 해제
+    if (connectedDevice != null) {
+      await connectedDevice!.disconnect();
+      connectedDevice = null;
+    }
+
+    // 3. 모든 구독 및 타이머 취소
+    await _valueSubscription?.cancel();
+    _valueSubscription = null;
+
+    await _scanSubscription?.cancel();
+    _scanSubscription = null;
+
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+
+    // 4. 모든 상태 변수 초기화
+    scanResults.clear();
+    temperature = null;
+    recordedTemperatures.clear();
+
+    // 5. 변경사항 UI에 즉시 반영
+    notifyListeners();
+  }
 }

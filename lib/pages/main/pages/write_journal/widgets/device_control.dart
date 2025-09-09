@@ -23,113 +23,201 @@ class DeviceControl extends StatefulWidget {
 }
 
 class _DeviceControlState extends State<DeviceControl> {
-  bool _taskStarted = false;
-  MeasureOption? _selectedOption = MeasureOption.manual;
+  MeasureOption _selectedOption = MeasureOption.manual;
   MeasureDetailOption _detailOption = MeasureDetailOption.one;
-  TextEditingController? _startThresholdController, _endThresholdController;
-  TextEditingController? _timeStartController, _timeEndController;
+  late final TextEditingController _startThresholdController;
+  late final TextEditingController _endThresholdController;
+  late final TextEditingController _timeStartController;
+  late final TextEditingController _timeEndController;
 
+  // --- 로직 제어 상태 ---
+  bool _taskStarted = false;
   bool _isTimedMeasurementRunning = false;
+  Timer? _autoStopTimer;
+  StreamSubscription? _tempSubscription;
 
-  Future<void> startOrStopRecording() async {
-    // 🔽 자동 모드이면서, 옵션이 2번 또는 3번일 경우 새로운 로직 실행
-    if (_selectedOption == MeasureOption.auto &&
-        (_detailOption == MeasureDetailOption.two || _detailOption == MeasureDetailOption.three)) {
-      await _startTimedMeasurement();
-    }
-    // 🔽 그 외의 경우(수동, 자동 1/4번)는 기존 로직 실행
-    else {
-      await _manualStartStop();
+  @override
+  void initState() {
+    super.initState();
+    _startThresholdController = TextEditingController();
+    _endThresholdController = TextEditingController();
+    _timeStartController = TextEditingController();
+    _timeEndController = TextEditingController();
+
+    _requestPermissions();
+  }
+
+  Future<void> _requestPermissions() async {
+    if (!await Permission.storage.request().isGranted) {
+      if (mounted) {
+        showAlertDialog(context, "저장소 권한을 허가해주세요.").then((_) => Navigator.of(context).pop());
+      }
     }
   }
 
-  // ✨ 기존 시작/종료 로직을 별도 함수로 분리
-  Future<void> _manualStartStop() async {
-    if (_selectedOption == MeasureOption.manual) {
-      if (_taskStarted) {
-        final lp = context.read<LoadingProvider>();
-        context.read<BLEProvider>().stopRecording();
+  @override
+  void dispose() {
+    _startThresholdController.dispose();
+    _endThresholdController.dispose();
+    _timeStartController.dispose();
+    _timeEndController.dispose();
+    _cancelAllTasks();
+    super.dispose();
+  }
 
-        lp.startLoading();
-        await submit();
-        lp.stopLoading();
+  void _cancelAllTasks() {
+    _autoStopTimer?.cancel();
+    _tempSubscription?.cancel();
+    _autoStopTimer = null;
+    _tempSubscription = null;
+  }
 
-        setState(() { _taskStarted = false; });
-      } else {
-        context.read<BLEProvider>().startRecording();
-        setState(() {
-          _taskStarted = true;
+  /// 메인 버튼 동작을 모드에 따라 분기
+  Future<void> startOrStopRecording() async {
+    // 진행 중인 작업이 있으면 중지
+    if (_taskStarted || _isTimedMeasurementRunning) {
+      await _stopAndSubmit();
+      return;
+    }
+
+    // 모드에 따라 새로운 작업 시작
+    switch (_selectedOption) {
+      case MeasureOption.manual:
+        _manualStart();
+        break;
+      case MeasureOption.auto:
+        if (areInputsValid()) {
+          switch (_detailOption) {
+            case MeasureDetailOption.one:
+            case MeasureDetailOption.four:
+              _autoStartWithCondition();
+              break;
+            case MeasureDetailOption.two:
+            case MeasureDetailOption.three:
+              _autoStartWithTimer();
+              break;
+          }
+        } else {
+          await showAlertDialog(context, "모든 항목을 채워주세요.");
+        }
+        break;
+    }
+  }
+
+  /// 모드 1: 수동 시작
+  void _manualStart() {
+    context.read<BLEProvider>().startRecording();
+    setState(() => _taskStarted = true);
+  }
+
+  /// 설비-1, 설비-4
+  void _autoStartWithCondition() {
+    final startTemp = double.tryParse(_startThresholdController.text);
+    final maxTime = int.tryParse(_timeEndController.text);
+
+    if (startTemp == null || maxTime == null || maxTime <= 0) {
+      showAlertDialog(context, "시작 온도와 최대 시간을 올바르게 입력해주세요.");
+      return;
+    }
+
+    setState(() => _taskStarted = true);
+
+    _tempSubscription = context.read<BLEProvider>().temperatureStream.listen((currentTemp) {
+      if (currentTemp != null && currentTemp >= startTemp) {
+        _tempSubscription?.cancel();
+
+        if (mounted) { context.read<BLEProvider>().startRecording(); }
+
+        final duration = _detailOption == MeasureDetailOption.four
+            ? Duration(minutes: maxTime, seconds: 1)
+            : Duration(seconds: maxTime + 1);
+
+        _autoStopTimer = Timer(duration, () {
+          if (mounted && _taskStarted) {
+            _stopAndSubmit();
+          }
         });
       }
-    } else {
-      if (!_taskStarted) {
-        context.read<BLEProvider>().startRecording();
-        setState(() => _taskStarted = true);
-      } else {
-        final lp = context.read<LoadingProvider>();
-        context.read<BLEProvider>().stopRecording();
-
-        lp.startLoading();
-        await submit();
-        lp.stopLoading();
-
-        setState(() => _taskStarted = false);
-      }
-    }
+    });
   }
 
-  // ✨ 옵션 2, 3번을 위한 새로운 시간 기반 측정 함수
-  Future<void> _startTimedMeasurement() async {
-    final timeValue = int.tryParse(_timeStartController?.text ?? '');
+  /// 설비-2, 설비-3
+  Future<void> _autoStartWithTimer() async {
+    final timeValue = int.tryParse(_timeStartController.text);
+    final tempValue = double.tryParse(_startThresholdController.text);
     if (timeValue == null || timeValue <= 0) {
       showAlertDialog(context, "측정 시간을 올바르게 입력해주세요.");
       return;
     }
 
-    // 측정 시작, 버튼 비활성화
     setState(() => _isTimedMeasurementRunning = true);
-    context.read<BLEProvider>().startRecording();
 
-    // 옵션에 따라 시간 단위(초/분)를 결정
-    final duration = _detailOption == MeasureDetailOption.two
-        ? Duration(seconds: timeValue)
-        : Duration(minutes: timeValue);
+    _tempSubscription = context.read<BLEProvider>().temperatureStream.listen((currentTemp) {
+      if (currentTemp != null && tempValue != null && currentTemp >= tempValue) {
+        _tempSubscription?.cancel();
 
-    // 설정된 시간 후에 자동으로 종료 및 제출 실행
-    Timer(duration, () async {
-      context.read<BLEProvider>().stopRecording();
-      await submit();
-      // 측정이 끝나면 버튼 다시 활성화
-      if (mounted) {
-        setState(() => _isTimedMeasurementRunning = false);
+        if (mounted) { context.read<BLEProvider>().startRecording(); }
+
+        final duration = _detailOption == MeasureDetailOption.two
+            ? Duration(seconds: timeValue + 1)
+            : Duration(minutes: timeValue, seconds: 1);
+
+        Timer(duration, () {
+          if (mounted && _isTimedMeasurementRunning) {
+            _stopAndSubmit();
+          }
+        });
       }
     });
   }
 
+  /// 공통: 중지 및 제출
+  Future<void> _stopAndSubmit() async {
+    if (!mounted || (!_taskStarted && !_isTimedMeasurementRunning)) return;
+
+    _cancelAllTasks();
+    context.read<BLEProvider>().stopRecording();
+
+    // 상태를 먼저 변경하여 UI가 즉시 반응하도록 함
+    setState(() {
+      _taskStarted = false;
+      _isTimedMeasurementRunning = false;
+    });
+
+    await submit();
+  }
+
+  /// 공통: 서버 제출 로직
   Future<void> submit() async {
+    final lp = context.read<LoadingProvider>();
     try {
-      context.read<LoadingProvider>().startLoading();
+      lp.startLoading();
       final data = context.read<BLEProvider>().recordedTemperatures.map((rec) => {
         'time': dateTimeToString(rec['time']),
         'value': rec['value'],
       }).toList();
 
-      // 🔽 옵션에 따라 파라미터를 담을 Map 생성
       final Map<String, dynamic> params = {};
-
+      params['detailOption'] = _detailOption.name;
       if (_selectedOption == MeasureOption.auto) {
-        if (_detailOption == MeasureDetailOption.two || _detailOption == MeasureDetailOption.three) {
-          params['startTemp'] = _startThresholdController?.text;
-        } else {
-          params['startTemp'] = _startThresholdController?.text;
-          params['endTemp'] = _endThresholdController?.text;
-        }
+        params['startTemp'] = _startThresholdController.text;
+        params['startTime'] = _timeStartController.text;
 
-        if (_detailOption == MeasureDetailOption.one || _detailOption == MeasureDetailOption.four) {
-          params['startTime'] = _timeStartController?.text;
-          params['endTime'] = _timeEndController?.text;
-        } else {
-          params['startTime'] = _timeStartController?.text;
+        switch(_detailOption) {
+          case MeasureDetailOption.one:
+            params['endTemp'] = _endThresholdController.text;
+            params['endTime'] = _timeEndController.text;
+            break;
+
+          case MeasureDetailOption.two:
+            params['endTemp'] = _endThresholdController.text;
+            break;
+
+          case MeasureDetailOption.three:
+            break;
+
+          case MeasureDetailOption.four:
+            params['endTime'] = _timeEndController.text;
         }
       }
 
@@ -137,26 +225,22 @@ class _DeviceControlState extends State<DeviceControl> {
         'type': _selectedOption == MeasureOption.auto ? 'auto' : 'manual',
         'data': data,
         'name': await context.read<BLEProvider>().getCurrentDeviceAlias(),
-        'params': params, // 👈 동적으로 구성된 파라미터 추가
+        'params': params,
       });
 
       await saveTemperatureData(data);
-      if (mounted) {
-        context.read<LoadingProvider>().stopLoading();
-        await showAlertDialog(context, "데이터 전송 성공");
-      }
+      if (mounted) await showAlertDialog(context, "데이터 전송 성공");
     } catch (e) {
-      if (mounted) {
-        context.read<LoadingProvider>().stopLoading();
-        showAlertDialog(context, "데이터 전송 실패: $e");
-      }
+      if (mounted) showAlertDialog(context, "데이터 전송 실패: $e");
+    } finally {
+      if (mounted) lp.stopLoading();
     }
   }
 
   Future<void> showOptionDialog() async {
     final result = await showDialog<MeasureOption?>(
-      context: context,
-      builder: (_) => SelectMeasureModeDialog(startOption: _selectedOption)
+        context: context,
+        builder: (_) => SelectMeasureModeDialog(startOption: _selectedOption)
     );
 
     if (result != null) {
@@ -164,85 +248,97 @@ class _DeviceControlState extends State<DeviceControl> {
     }
   }
 
-  Future<bool> requestStoragePermission() async {
-    if (await Permission.storage.request().isGranted) {
-      return true;
-    } else {
-      return false;
+  String getAutoMenuSelectionNames(MeasureDetailOption option) {
+    switch (option) {
+      case MeasureDetailOption.one:
+        return "설비-1번";
+      case MeasureDetailOption.two:
+        return "설비-2번";
+      case MeasureDetailOption.three:
+        return "설비-3번";
+      case MeasureDetailOption.four:
+        return "설비-4번";
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _startThresholdController = TextEditingController();
-    _endThresholdController = TextEditingController();
-    requestStoragePermission().then((v) {
-      if (!v && mounted) {
-        showAlertDialog(context, "저장소 권한을 허가해주세요.");
-        Navigator.of(context).pop();
-      }
-    });
-  }
+  bool areInputsValid() {
+    isNotEmpty(TextEditingController c) => c.text.isNotEmpty;
 
-  @override
-  void dispose() {
-    _startThresholdController?.dispose();
-    _endThresholdController?.dispose();
-    _timeStartController?.dispose();
-    _timeEndController?.dispose();
-    super.dispose();
+    switch (_detailOption) {
+      case MeasureDetailOption.one:
+        return isNotEmpty(_startThresholdController) &&
+            isNotEmpty(_endThresholdController) &&
+            isNotEmpty(_timeStartController) &&
+            isNotEmpty(_timeEndController);
+
+      case MeasureDetailOption.two:
+        return isNotEmpty(_startThresholdController) &&
+            isNotEmpty(_endThresholdController) &&
+            isNotEmpty(_timeStartController);
+
+      case MeasureDetailOption.three:
+        return isNotEmpty(_startThresholdController) &&
+            isNotEmpty(_timeStartController);
+
+      case MeasureDetailOption.four:
+        return isNotEmpty(_startThresholdController) &&
+            isNotEmpty(_timeStartController) &&
+            isNotEmpty(_timeEndController);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final temperature = context.watch<BLEProvider>().temperature;
+    final bool isBusy = _taskStarted || _isTimedMeasurementRunning;
 
-    String buttonText = _taskStarted ? "중단" : "시작";
-    if (_selectedOption == MeasureOption.auto &&
-        (_detailOption == MeasureDetailOption.two || _detailOption == MeasureDetailOption.three)) {
+    String buttonText = "시작";
+    if (isBusy) {
+      buttonText = "중단";
+    } else if (_selectedOption == MeasureOption.auto && (_detailOption == MeasureDetailOption.two || _detailOption == MeasureDetailOption.three)) {
       buttonText = "측정";
     }
 
     return Column(
       children: [
-        Text("${_taskStarted ? "온도 측정 진행 중" : "현재 온도"}: ${temperature ?? 0}"),
-        SizedBox(height: 16,),
+        Text(
+          "${isBusy ? "온도 측정 진행 중" : "현재 온도"}: ${temperature ?? 0}℃",
+          style: TextStyle(fontSize: 20),
+        ),
+        const SizedBox(height: 8,),
         if (_selectedOption == MeasureOption.auto)
           TempSelection(
             startThresholdController: _startThresholdController,
             endThresholdController: _endThresholdController,
-            taskStarted: _taskStarted,
+            taskStarted: isBusy,
             measureDetailOption: _detailOption,
           ),
         if (_selectedOption == MeasureOption.auto)
           TimeSelection(
-            timeStartController: _timeStartController,
-            timeEndController: _timeEndController,
-            taskStarted: _taskStarted,
-            measureDetailOption: _detailOption
+              timeStartController: _timeStartController,
+              timeEndController: _timeEndController,
+              taskStarted: isBusy,
+              measureDetailOption: _detailOption
           ),
         if (_selectedOption == MeasureOption.auto)
           AutoMenuSelection(
             value: _detailOption,
             items: MeasureDetailOption.values,
-            onChanged: (v) {
+            onChanged: isBusy ? null : (v) {
               if (v != null) {
-                setState(() {
-                  _detailOption = v;
-                });
+                setState(() => _detailOption = v as MeasureDetailOption);
               }
             },
-            label: toNamed
+            label: getAutoMenuSelectionNames,
           ),
         ElevatedButton(
-          onPressed: _taskStarted || _isTimedMeasurementRunning ? null : showOptionDialog,
-          child: Text('측정 모드 선택'),
+          onPressed: isBusy ? null : showOptionDialog,
+          child: const Text('측정 모드 선택'),
         ),
-        SizedBox(height: 16,),
+        const SizedBox(height: 8,),
         ElevatedButton(
-          onPressed: _isTimedMeasurementRunning ? null : startOrStopRecording,
-          child: Text(buttonText)
+            onPressed: startOrStopRecording,
+            child: Text(buttonText)
         ),
       ],
     );

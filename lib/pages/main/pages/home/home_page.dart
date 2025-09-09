@@ -42,9 +42,10 @@ class _HomePageState extends State<HomePage> {
     final ble = context.read<BLEProvider>();
     final loading = context.read<LoadingProvider>();
 
+    // TODO: 주석1
     loading.startLoading();
     final loaded = await ble.loadSavedDevices();
-    
+
     try {
       if (loaded.length == 1) {
         final id = loaded[0]['id']!;
@@ -60,12 +61,15 @@ class _HomePageState extends State<HomePage> {
         }
       } else {
         loading.stopLoading();
-        if (mounted) { await showAlertDialog(context, "등록된 기기가 없습니다."); }      
+        if (mounted) { await showAlertDialog(context, "등록된 기기가 없습니다."); }
       }
     } catch (_) {
       loading.stopLoading();
       if (mounted) { showAlertDialog(context, "기기 선택 중 오류가 발생하였습니다."); }
     }
+
+    // TODO: 주석2
+    // Navigator.pushNamed(context, '/home/write-journal');
   }
 
   Future<String?> showRegisteredDevices(List<Map<String, String>> loaded) async {

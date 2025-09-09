@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import 'package:temperature_upload/utils/client.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -33,7 +37,13 @@ class _SplashPageState extends State<SplashPage> {
   Future<void> _checkLogin() async {
     final token = await readWithAutoDeleteOnError('jwt');
 
-    final isValid = token != null && token.isNotEmpty;
+    bool isValid = token != null && token.isNotEmpty;
+
+    Map<String, dynamic> res = jsonDecode((await Client.get('/api/auth/verify')).body);
+
+    if (res['result'] == 'expired') {
+      isValid = false;
+    }
 
     if (!mounted) return;
     if (isValid) {

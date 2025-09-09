@@ -62,6 +62,7 @@ class _WriteJournalState extends State<WriteJournal> {
 
   @override
   void initState() {
+    // TODO: 주석3
     super.initState();
     Future.microtask(() {
       if (mounted) {

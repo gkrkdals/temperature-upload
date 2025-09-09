@@ -11,13 +11,13 @@ class AutoMenuSelection<T extends Enum> extends StatelessWidget {
 
   final T value;
   final List<T> items;
-  final ValueChanged<T?> onChanged;
+  final ValueChanged<T?>? onChanged;
   final String Function(T) label;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 16),
+      padding: EdgeInsets.only(bottom: 8),
       child: DropdownButton<T>(
         value: value,
         items: items.map((T item) {

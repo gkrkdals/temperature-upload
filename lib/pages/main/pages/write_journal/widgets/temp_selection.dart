@@ -22,58 +22,61 @@ class TempSelection extends StatelessWidget {
     }
   }
 
+  MainAxisAlignment getFirstMainAxisAlignment() {
+    if (measureDetailOption == MeasureDetailOption.one || measureDetailOption == MeasureDetailOption.two) {
+      return MainAxisAlignment.end;
+    } else {
+      return MainAxisAlignment.center;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return (
       Padding(
         padding: EdgeInsets.only(bottom: 16),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Flexible(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(getFirstLabel()),
-                  SizedBox(
-                    width: 70,
-                    child: TextField(
-                      decoration: InputDecoration(
-                        border: OutlineInputBorder(),
-                        suffixText: "℃",
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10)
-                      ),
-                      keyboardType: TextInputType.number,
-                      readOnly: taskStarted,
-                      controller: startThresholdController,
-                    ),
-                  ),
-                ],
+            SizedBox(
+              width: 70,
+              child: TextField(
+                decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10)
+                ),
+                keyboardType: TextInputType.number,
+                readOnly: taskStarted,
+                controller: startThresholdController,
               ),
             ),
             if (measureDetailOption == MeasureDetailOption.one || measureDetailOption == MeasureDetailOption.two) ...[
-              SizedBox(width: 16),
-              Flexible(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    Text("최고온도: "),
-                    SizedBox(
-                      width: 70,
-                      child: TextField(
-                        decoration: InputDecoration(
-                            border: OutlineInputBorder(),
-                            suffixText: "℃",
-                            contentPadding: EdgeInsets.symmetric(horizontal: 10)
-                        ),
-                        keyboardType: TextInputType.number,
-                        readOnly: taskStarted,
-                        controller: endThresholdController,
-                      ),
-                    ),
-                  ],
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 5),
+                child: Text('℃ ~ ', style: TextStyle(fontSize: 20),),
+              ),
+              SizedBox(
+                width: 70,
+                child: TextField(
+                  decoration: InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 10)
+                  ),
+                  keyboardType: TextInputType.number,
+                  readOnly: taskStarted,
+                  controller: endThresholdController,
                 ),
               ),
+              Padding(
+                padding: EdgeInsets.only(left: 5),
+                child: Text('℃', style: TextStyle(fontSize: 20),),
+              ),
             ]
+            else
+              Padding(
+                padding: EdgeInsets.only(left: 5),
+                child: Text('℃ 도달하면', style: TextStyle(fontSize: 20),),
+              ),
           ],
         ),
       )
