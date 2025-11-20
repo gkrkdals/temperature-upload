@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:temperature_upload/loading_provider.dart';
 import 'package:temperature_upload/pages/main/dialogs/device_dialog.dart';
@@ -35,7 +39,35 @@ class _WriteJournalState extends State<WriteJournal> {
     }
   }
 
-  void openSearchDevices(BLEProvider ble) {
+  /// 권한 확인 요망 다이얼로그
+  void showGrantAlert() {
+    showAlertDialog(context, "설정 > 애플리케이션 > 온도측정 > 권한에서 블루투스 관련 권한을 허용해주세요.");
+  }
+
+  /// 디바이스 검색 시작
+  void openSearchDevices(BLEProvider ble) async {
+    bool granted = false;
+
+    if (Platform.isAndroid) {
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      final sdkInt = androidInfo.version.sdkInt;
+
+      if (sdkInt >= 31) { // Android 12+
+        granted = await Permission.bluetoothScan.request().isGranted &&
+            await Permission.bluetoothConnect.request().isGranted;
+      } else { // Android 11 and below
+        granted = await Permission.locationWhenInUse.request().isGranted;
+      }
+    } else {
+      granted = true;
+    }
+
+    if (!granted) {
+      if (mounted) showGrantAlert();
+      return;
+    }
+
     ble.startScan();
     
     if (mounted) {
@@ -87,13 +119,23 @@ class _WriteJournalState extends State<WriteJournal> {
         appBar: AppBar(
           title: Text("일지 작성"),
         ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const DeviceControl(),
-            ],
-          ),
+        body: LayoutBuilder(
+          builder: (_, constraints) =>
+            SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SafeArea(child: DeviceControl()),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            )
         ),
       )
     );

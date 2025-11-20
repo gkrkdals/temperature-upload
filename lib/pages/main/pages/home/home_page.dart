@@ -41,10 +41,17 @@ class _HomePageState extends State<HomePage> {
   Future<void> selectDevice() async {
     final ble = context.read<BLEProvider>();
     final loading = context.read<LoadingProvider>();
+    var loaded = <Map<String, String>> [];
+
 
     // TODO: 주석1
     loading.startLoading();
-    final loaded = await ble.loadSavedDevices();
+    try {
+      loaded = await ble.loadSavedDevices();
+    } catch (e) {
+      if (mounted) showAlertDialog(context, e.toString());
+      return;
+    }
 
     try {
       if (loaded.length == 1) {
@@ -53,8 +60,10 @@ class _HomePageState extends State<HomePage> {
         loading.stopLoading();
         if (mounted) { Navigator.pushNamed(context, '/home/write-journal'); }
       } else if (loaded.length > 1) {
+        loading.stopLoading();
         final id = await showRegisteredDevices(loaded);
         if (id != null) {
+          loading.startLoading();
           await ble.connect(BluetoothDevice.fromId(id));
           loading.stopLoading();
           if (mounted) { Navigator.pushNamed(context, '/home/write-journal'); }

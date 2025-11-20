@@ -1,15 +1,17 @@
 import 'dart:async';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:device_info_plus/device_info_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BLEProvider extends ChangeNotifier {
   static const String _dataServiceUuid = 'ba2cc24b-9ba4-4316-a285-6687ffc3b6ae';
   static const String _dataCharacteristicUuid = 'f758e745-300f-4f56-9d66-dabce7cc05a3';
 
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  Future<SharedPreferences> _getPrefs() async {
+    return SharedPreferences.getInstance();
+  }
 
   // --- 스캔 관련 상태 ---
   List<ScanResult> scanResults = [];
@@ -53,7 +55,9 @@ class BLEProvider extends ChangeNotifier {
     );
 
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-      scanResults = results;
+      scanResults = results
+          .where((r) => r.device.platformName.startsWith('SP'))
+          .toList();
       notifyListeners();
     }, onDone: () {
       isScanning = false;
@@ -63,6 +67,8 @@ class BLEProvider extends ChangeNotifier {
 
   void stopScan() {
     FlutterBluePlus.stopScan();
+    isScanning = false;
+    notifyListeners();
   }
 
   Future<void> connect(BluetoothDevice device) async {
@@ -121,18 +127,26 @@ class BLEProvider extends ChangeNotifier {
     try {
       final value = double.parse(ascii);
       temperature = value;
-      _tempStreamController.add(value); // ✨ Stream으로 데이터 전송
+      _tempStreamController.add(value);
       notifyListeners(); // UI 업데이트 알림
     } catch (_) {
       // 파싱 실패 시 무시
     }
   }
 
-  void startRecording() {
+  void startRecording(Duration interval) {
     recordedTemperatures.clear();
-    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      // TODO: 주석4
-      // temperature ??= 0;
+
+    // 시작 즉시 첫 번째 값 기록
+    if (temperature != null) {
+      recordedTemperatures.add({
+        'time': DateTime.now(),
+        'value': temperature!
+      });
+    }
+
+    // 이후 간격에 따라 주기적으로 기록
+    _recordingTimer = Timer.periodic(interval, (_) {
       if (temperature != null) {
         recordedTemperatures.add({
           'time': DateTime.now(),
@@ -145,6 +159,18 @@ class BLEProvider extends ChangeNotifier {
   void stopRecording() {
     _recordingTimer?.cancel();
     _recordingTimer = null;
+
+    // 마지막 온도 값 추가
+    if (temperature != null) {
+      // 중복 추가 방지: 마지막 기록 시간과 현재 시간 비교
+      if (recordedTemperatures.isEmpty ||
+          DateTime.now().difference(recordedTemperatures.last['time']) > const Duration(milliseconds: 500)) {
+        recordedTemperatures.add({
+          'time': DateTime.now(),
+          'value': temperature!
+        });
+      }
+    }
   }
 
   Future<void> stopListening() async {
@@ -159,7 +185,7 @@ class BLEProvider extends ChangeNotifier {
     } catch(e) {
       // 연결이 이미 끊긴 경우 등 예외 발생 가능
     }
-
+	
     temperature = null;
     notifyListeners();
   }
@@ -171,31 +197,33 @@ class BLEProvider extends ChangeNotifier {
   }
 
   Future<void> saveDevice(String id, String alias) async {
-    await _storage.write(key: 'ble_device_$id', value: alias);
+    final prefs = await _getPrefs();
+    await prefs.setString('ble_device_$id', alias);
   }
 
   Future<List<Map<String, String>>> loadSavedDevices() async {
-    final all = await _storage.readAll();
-
-    final deviceEntries = all.entries
-        .where((e) => e.key.startsWith('ble_device_'))
-        .map((e) => {
-      'id': e.key.replaceFirst('ble_device_', ''),
-      'alias': e.value,
-    })
+    final prefs = await _getPrefs();
+    final keys = prefs.getKeys();
+    return keys
+        .where((key) => key.startsWith('ble_device_'))
+        .map((key) => {
+              'id': key.replaceFirst('ble_device_', ''),
+              'alias': prefs.getString(key) ?? '',
+            })
         .toList();
-
-    return deviceEntries;
   }
 
   Future<void> removeDevice(String id) async {
-    await _storage.delete(key: 'ble_device_$id');
+    final prefs = await _getPrefs();
+    await prefs.remove('ble_device_$id');
   }
 
   Future<String?> getCurrentDeviceAlias() async {
     String? id = connectedDevice?.remoteId.str;
     if (id == null) return '';
-    return _storage.read(key: 'ble_device_$id');
+
+    final prefs = await _getPrefs();
+    return prefs.getString('ble_device_$id');
   }
 
   Future<void> reset() async {

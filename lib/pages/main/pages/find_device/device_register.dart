@@ -53,9 +53,13 @@ class _DeviceRegisterState extends State<DeviceRegister> {
   }
 
   Future<void> reloadDevices() async {
-    if (mounted) {
-      final loaded = await context.read<BLEProvider>().loadSavedDevices();
-      setState(() => _savedDeviceLists = loaded);
+    try {
+      if (mounted) {
+        final loaded = await context.read<BLEProvider>().loadSavedDevices();
+        setState(() => _savedDeviceLists = loaded);
+      }
+    } catch (e) {
+      if (mounted) showAlertDialog(context, e.toString());
     }
   }
 
@@ -66,7 +70,13 @@ class _DeviceRegisterState extends State<DeviceRegister> {
   }
 
   Future<void> saveDevice(String id, String alias) async {
-    await context.read<BLEProvider>().saveDevice(id, alias);
+    try {
+      await context.read<BLEProvider>().saveDevice(id, alias);
+
+      if (mounted) showAlertDialog(context, "기기가 성공적으로 저장되었습니다.");
+    } catch (e) {
+      if (mounted) showAlertDialog(context, e.toString());
+    }
   }
 
   Future<void> openDeviceSearchDialog(BLEProvider ble) async {
@@ -102,10 +112,14 @@ class _DeviceRegisterState extends State<DeviceRegister> {
       builder: (_) => AliasDialog(),
     );
 
-    if (alias != null) {
-      await saveDevice(id, alias);
-      await reloadDevices();
+    if (alias == null || alias.isEmpty) {
+      final parts = id.split(':');
+      final firstPart = parts.isNotEmpty ? parts[0] : id;
+      alias = "기기_$firstPart";
     }
+
+    await saveDevice(id, alias);
+    await reloadDevices();
   }
 
   Future<void> openRemoveDialog(int index) async {

@@ -17,7 +17,7 @@ class AutoMenuSelection<T extends Enum> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: 20),
       child: DropdownButton<T>(
         value: value,
         items: items.map((T item) {

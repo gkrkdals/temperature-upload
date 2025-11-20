@@ -4,7 +4,7 @@ import 'package:temperature_upload/models/enum/measure_option.dart';
 class SelectMeasureModeDialog extends StatefulWidget {
   const SelectMeasureModeDialog({
     super.key,
-    required this.startOption
+    required this.startOption,
   });
 
   final MeasureOption? startOption;
