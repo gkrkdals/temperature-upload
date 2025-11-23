@@ -43,8 +43,11 @@ class _HomePageState extends State<HomePage> {
     final loading = context.read<LoadingProvider>();
     var loaded = <Map<String, String>> [];
 
+    if (!(await ble.isBluetoothEnabled())) {
+      if (mounted) await showAlertDialog(context, "일지 작성을 위해 블루투스를 켜주세요.");
+      return;
+    }
 
-    // TODO: 주석1
     loading.startLoading();
     try {
       loaded = await ble.loadSavedDevices();

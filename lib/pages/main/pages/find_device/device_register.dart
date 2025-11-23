@@ -135,6 +135,26 @@ class _DeviceRegisterState extends State<DeviceRegister> {
     );
   }
 
+  Future<void> openAddDialog() async {
+    final ble = context.read<BLEProvider>();
+    final isBluetoothEnabled = await ble.isBluetoothEnabled();
+    if (!mounted) return;
+    
+    if (!isBluetoothEnabled) {
+      await showAlertDialog(context, "기기 등록을 위해 블루투스를 켜주세요.");
+      return;
+    }
+
+    if (
+    !(await Permission.bluetoothScan.request().isGranted) ||
+        !(await Permission.bluetoothConnect.request().isGranted)
+    ) {
+      showAlert();
+    } else {
+      openDeviceSearchDialog(ble);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -144,8 +164,6 @@ class _DeviceRegisterState extends State<DeviceRegister> {
 
   @override
   Widget build(BuildContext context) {
-    final ble = context.watch<BLEProvider>();
-
     return Scaffold(
       appBar: AppBar(
         title: Text("기기 등록"),
@@ -194,16 +212,7 @@ class _DeviceRegisterState extends State<DeviceRegister> {
               padding: EdgeInsets.symmetric(horizontal: 16),
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () async {
-                  if (
-                    !(await Permission.bluetoothScan.request().isGranted) ||
-                    !(await Permission.bluetoothConnect.request().isGranted)
-                  ) {
-                    showAlert();
-                  } else {
-                    openDeviceSearchDialog(ble);
-                  }
-                },
+                onPressed: openAddDialog,
                 child: Text('기기 등록하기')
               ),
             )

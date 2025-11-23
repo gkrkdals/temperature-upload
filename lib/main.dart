@@ -44,7 +44,10 @@ class MyApp extends StatelessWidget {
 
     return MaterialApp(
       title: '온도계 정보',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        fontFamily: 'Paperlogy'
+      ),
       initialRoute: '/',
       routes: {
         '/': (_) => const SplashPage(),

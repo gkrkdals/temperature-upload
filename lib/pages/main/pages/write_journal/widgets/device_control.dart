@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -13,7 +14,7 @@ import 'package:temperature_upload/pages/main/providers/ble_provider.dart';
 import 'package:temperature_upload/utils/client.dart';
 import 'package:temperature_upload/utils/dialogs.dart';
 import 'package:temperature_upload/utils/files.dart';
-import 'package:temperature_upload/utils/secure_category_storage.dart';
+import 'package:temperature_upload/utils/category_storage.dart';
 import 'package:temperature_upload/utils/time.dart';
 
 class DeviceControl extends StatefulWidget {
@@ -30,7 +31,7 @@ class _DeviceControlState extends State<DeviceControl> {
   late final TextEditingController _endThresholdController;
   late final TextEditingController _timeStartController;
   late final TextEditingController _timeEndController;
-  final storage = SecureCategoryStorage();
+  final storage = CategoryStorage();
 
   // --- 로직 제어 상태 ---
   bool _taskStarted = false;
@@ -38,16 +39,7 @@ class _DeviceControlState extends State<DeviceControl> {
   Timer? _autoStopTimer;
   StreamSubscription? _tempSubscription;
 
-  // --- 새로운 기능 ---
-  Duration _recordingInterval = const Duration(seconds: 1);
-  final List<Map<String, dynamic>> _intervalOptions = [
-    {'label': '1초', 'duration': const Duration(seconds: 1)},
-    {'label': '5초', 'duration': const Duration(seconds: 5)},
-    {'label': '10초', 'duration': const Duration(seconds: 10)},
-    {'label': '30초', 'duration': const Duration(seconds: 30)},
-    {'label': '1분', 'duration': const Duration(minutes: 1)},
-    {'label': '5분', 'duration': const Duration(minutes: 5)},
-  ];
+  Duration _recordingInterval = const Duration(seconds: 10);
 
   Future<void> _requestPermissions() async {
     if (!await Permission.storage.request().isGranted) {
@@ -285,6 +277,7 @@ class _DeviceControlState extends State<DeviceControl> {
     }
   }
 
+  /// 측정온도/시간 및 기록 간격 저장
   Future saveValues() async {
     await storage.saveCategory(getAutoMenuSelectionNames(_detailOption), {
       'startThreshold': _startThresholdController.text,
@@ -292,14 +285,86 @@ class _DeviceControlState extends State<DeviceControl> {
       'timeStart': _timeStartController.text,
       'timeEnd': _timeEndController.text,
     });
+
+    await storage.saveCategory("intervals", {
+      "totalSeconds": _recordingInterval.inSeconds,
+    });
+    debugPrint("saved");
   }
 
+  /// 측정온도/시간 및 기록 간격 불러오기
   Future loadSavedValues() async {
     final loaded = await storage.loadCategory(getAutoMenuSelectionNames(_detailOption));
     _startThresholdController.text = loaded["startThreshold"] ?? '';
     _endThresholdController.text = loaded["endThreshold"] ?? '';
     _timeStartController.text = loaded["timeStart"] ?? '';
     _timeEndController.text = loaded["timeEnd"] ?? '';
+  }
+
+  Future<void> loadSavedInterval() async {
+    final intervals = await storage.loadCategory("intervals");
+    // totalSeconds를 불러오고, 없으면 기본값 10초로 설정
+    final totalSeconds = intervals["totalSeconds"];
+    setState(() {
+      if (totalSeconds != null && totalSeconds is int && totalSeconds > 0) {
+        _recordingInterval = Duration(seconds: totalSeconds);
+      } else {
+        _recordingInterval = const Duration(seconds: 10);
+      }
+    });
+  }
+
+  Future<void> _showIntervalPicker() async {
+    Duration tempDuration = _recordingInterval;
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (BuildContext context) => Container(
+        height: 250,
+        padding: const EdgeInsets.only(top: 6.0),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        color: CupertinoColors.systemBackground.resolveFrom(context),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    child: const Text('취소'),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  CupertinoButton(
+                    child: const Text('확인'),
+                    onPressed: () {
+                      if (tempDuration.inSeconds < 1) {
+                        showAlertDialog(context, '기록 간격은 최소 1초 이상이어야 합니다.').then((_) {
+                          setState(() => _recordingInterval = const Duration(seconds: 1));
+                        });
+                      } else {
+                        setState(() => _recordingInterval = tempDuration);
+                      }
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                ],
+              ),
+              Expanded(
+                child: CupertinoTimerPicker(
+                  mode: CupertinoTimerPickerMode.ms,
+                  initialTimerDuration: _recordingInterval,
+                  onTimerDurationChanged: (Duration newDuration) {
+                    tempDuration = newDuration;
+                  },
+                ),
+              ),
+            ],
+          )
+        ),
+      ),
+    );
   }
 
   @override
@@ -309,6 +374,8 @@ class _DeviceControlState extends State<DeviceControl> {
     _endThresholdController = TextEditingController();
     _timeStartController = TextEditingController();
     _timeEndController = TextEditingController();
+
+    loadSavedInterval();
 
     _requestPermissions();
   }
@@ -380,25 +447,24 @@ class _DeviceControlState extends State<DeviceControl> {
             label: getAutoMenuSelectionNames,
           ),
         ],
+        // 기존 Row 위젯을 아래 코드로 교체합니다.
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Text("기록 간격: "),
-            DropdownButton<Duration>(
-              value: _recordingInterval,
-              onChanged: isBusy ? null : (Duration? newValue) {
-                if (newValue != null) {
-                  setState(() {
-                    _recordingInterval = newValue;
-                  });
-                }
-              },
-              items: _intervalOptions.map<DropdownMenuItem<Duration>>((Map<String, dynamic> option) {
-                return DropdownMenuItem<Duration>(
-                  value: option['duration'],
-                  child: Text(option['label']),
-                );
-              }).toList(),
+            InkWell(
+              onTap: isBusy ? null : _showIntervalPicker,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                child: Text(
+                  '${_recordingInterval.inMinutes.toString().padLeft(2, '0')}:${(_recordingInterval.inSeconds % 60).toString().padLeft(2, '0')}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: isBusy ? Colors.grey : Theme.of(context).primaryColor,
+                    decoration: TextDecoration.underline
+                  ),
+                ),
+              ),
             ),
           ],
         ),

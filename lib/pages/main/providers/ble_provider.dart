@@ -33,6 +33,12 @@ class BLEProvider extends ChangeNotifier {
   Timer? _recordingTimer;
   final List<Map<String, dynamic>> recordedTemperatures = [];
 
+  /// 블루투스가 켜져있는지 확인
+  Future<bool> isBluetoothEnabled() async {
+    var state = await FlutterBluePlus.adapterState.first;
+    return state == BluetoothAdapterState.on;
+  }
+
   void startScan() async {
     final deviceInfo = DeviceInfoPlugin();
     final androidInfo = await deviceInfo.androidInfo;

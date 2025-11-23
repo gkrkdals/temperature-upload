@@ -2,7 +2,10 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:temperature_upload/pages/login/widgets/login_text_field.dart';
 import 'package:temperature_upload/utils/client.dart';
+
+import 'package:temperature_upload/constants/app_sizes.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -34,12 +37,10 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _login() async {
-    print("로그인 시작");
     setState(() {
       _isLoading = true;
       _error = null;
     });
-    print("에엥");
 
     final body = {
       'id': _idController?.text,
@@ -47,9 +48,7 @@ class _LoginPageState extends State<LoginPage> {
     };
 
     try {
-      print("요청 날림");
       final response = await Client.post('/api/auth/login-request', body: body);
-      print("로그인 하는 중");
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         if (body['result'] == 'failed') {
@@ -80,29 +79,31 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextField(
-              controller: _idController,
-              decoration: const InputDecoration(labelText: 'ID'),
+      resizeToAvoidBottomInset: true,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: Image.asset('assets/images/login_bg.png', fit: BoxFit.cover,)
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSizes.contentSpacing),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                LoginTextField(controller: _idController, hintText: "아이디"),
+                const SizedBox(height: AppSizes.smallSpacing),
+                LoginTextField(controller: _passwordController, hintText: "비밀번호"),
+                const SizedBox(height: AppSizes.mediumSpacing),
+                if (_isLoading) const CircularProgressIndicator(),
+                if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+                ElevatedButton(
+                  onPressed: _isLoading ? null : _login,
+                  child: const Text('로그인'),
+                ),
+              ],
             ),
-            TextField(
-              controller: _passwordController,
-              decoration: const InputDecoration(labelText: '비밀번호'),
-              obscureText: true,
-            ),
-            const SizedBox(height: 20),
-            if (_isLoading) const CircularProgressIndicator(),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _login,
-              child: const Text('로그인'),
-            ),
-          ],
-        ),
+          )
+        ],
       ),
     );
   }
