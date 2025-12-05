@@ -7,7 +7,7 @@ class AppSizes {
 
   static const contentSpacing = 45.0;
 
-  static const buttonHeight = 40.0;
+  static const buttonHeight = 55.0;
   static const borderRadius = 12.0;
 
   static const mediumFontSize = 16.0;

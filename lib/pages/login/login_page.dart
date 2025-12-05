@@ -6,6 +6,9 @@ import 'package:temperature_upload/pages/login/widgets/login_text_field.dart';
 import 'package:temperature_upload/utils/client.dart';
 
 import 'package:temperature_upload/constants/app_sizes.dart';
+import 'package:temperature_upload/widgets/backgrounds/login_background.dart';
+import 'package:temperature_upload/widgets/buttons/buttons.dart';
+import 'package:temperature_upload/widgets/checkboxes/round_checkbox.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -18,6 +21,7 @@ class _LoginPageState extends State<LoginPage> {
   TextEditingController? _idController;
   TextEditingController? _passwordController;
 
+  bool _saveLoginInfo = false;
   bool _isLoading = false;
   String? _error;
 
@@ -79,27 +83,33 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: true,
+      // resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
-          Positioned.fill(
-            child: Image.asset('assets/images/login_bg.png', fit: BoxFit.cover,)
-          ),
+          const LoginBackground(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSizes.contentSpacing),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 LoginTextField(controller: _idController, hintText: "아이디"),
                 const SizedBox(height: AppSizes.smallSpacing),
-                LoginTextField(controller: _passwordController, hintText: "비밀번호"),
+                LoginTextField(controller: _passwordController, hintText: "비밀번호", isPassword: true,),
                 const SizedBox(height: AppSizes.mediumSpacing),
-                if (_isLoading) const CircularProgressIndicator(),
-                if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
-                  child: const Text('로그인'),
+                RoundCheckbox(
+                  label: "자동 로그인", 
+                  value: _saveLoginInfo,
+                  onChanged: (bool? newValue) => setState(() => _saveLoginInfo = newValue ?? false),
                 ),
+                const SizedBox(height: AppSizes.smallSpacing,),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: _error != null ? Text(_error!, style: const TextStyle(color: Colors.red)) : const SizedBox.shrink(),
+                ),
+                const SizedBox(height: AppSizes.mediumSpacing),
+                GradientTextButton(text: '로그인', onPressed: _isLoading ? null : _login),
               ],
             ),
           )

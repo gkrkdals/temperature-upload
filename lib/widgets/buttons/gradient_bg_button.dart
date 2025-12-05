@@ -7,12 +7,15 @@ class GradientBgButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
   final double borderRadius;
+  final double width, height;
 
   const GradientBgButton({
     super.key,
     required this.text,
     required this.onPressed,
     this.borderRadius = AppSizes.borderRadius,
+    this.width = double.infinity,
+    this.height = AppSizes.buttonHeight,
   });
 
   @override
@@ -20,8 +23,8 @@ class GradientBgButton extends StatelessWidget {
     final bool isEnabled = onPressed != null;
 
     return Container(
-      width: double.infinity,
-      height: AppSizes.buttonHeight,
+      width: width,
+      height: height,
       decoration: BoxDecoration(
         gradient: isEnabled
             ? const LinearGradient(
@@ -35,7 +38,7 @@ class GradientBgButton extends StatelessWidget {
         boxShadow: isEnabled
           ? [
               BoxShadow(
-                color: AppColors.gradientEnd.withOpacity(0.3),
+                color: AppColors.gradientEnd.withValues(alpha: 0.2),
                 blurRadius: 8,
                 offset: const Offset(0, 4),
               ),
